@@ -2,23 +2,24 @@ from flask import Flask, request, jsonify
 import csv
 import requests
 import os
+from fuzzywuzzy import process
 
 app = Flask(__name__)
 
 # Load street-to-club mapping
 street_to_club = {}
+known_streets = []
 
-# Load and normalize CSV data
 try:
     with open('rotary_streets.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            # Normalize headers and content
             cleaned_row = {k.strip().lower(): v for k, v in row.items()}
             street = cleaned_row.get('street', '').strip().lower()
             club = cleaned_row.get('rotaryclub', '').strip()
             if street and club:
                 street_to_club[street] = club
+                known_streets.append(street)
 except Exception as e:
     print("Failed to load CSV:", e)
 
@@ -28,7 +29,6 @@ def check_address():
     if not user_address:
         return jsonify({"error": "No address provided"}), 400
 
-    # Geocode with OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -46,24 +46,28 @@ def check_address():
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
-    if street_name in street_to_club:
-        club = street_to_club[street_name]
+    # Fuzzy match the street name
+    match, score = process.extractOne(street_name, known_streets)
+
+    if score >= 85:  # Adjust this threshold if needed
+        club = street_to_club[match]
         return jsonify({
             "serviced": True,
             "rotary_club": club,
-            "street": street_name.title()
+            "matched_street": match.title(),
+            "confidence_score": score
         })
 
     return jsonify({
         "serviced": False,
-        "reason": f"{street_name.title()} is not in our service area."
+        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)"
     })
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running."
+    return "✅ Rotary Club Lookup API with fuzzy matching is running."
 
-# Required for Render deployment
+# Render-compatible
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
