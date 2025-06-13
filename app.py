@@ -3,10 +3,10 @@ import csv
 import requests
 import os
 from fuzzywuzzy import process
-from flask_cors import CORS  # ✅ CORS import
+from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # ✅ Enable CORS for all routes
+CORS(app)
 
 # Load street-to-club mapping
 street_to_club = {}
@@ -47,15 +47,21 @@ def check_address():
     print("📍 Parsed address info:", address_info)
 
     street_name = address_info.get("road", "").lower().strip()
-    print(f"🔍 Extracted street name: '{street_name}'")
+    city = address_info.get("city", "").lower().strip()
+    state = address_info.get("state", "").lower().strip()
+
+    print(f"🏙️ City: '{city}', State: '{state}'")
 
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
+    if city != "wichita falls" or state != "texas":
+        return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX"})
+
     match, score = process.extractOne(street_name, known_streets)
     print(f"🔁 Fuzzy matched to '{match}' with score {score}")
 
-    if score >= 80:  # Relaxed match threshold
+    if score >= 80:
         club = street_to_club[match]
         return jsonify({
             "serviced": True,
@@ -71,7 +77,7 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running with CORS and fuzzy matching."
+    return "✅ Rotary Club Lookup API is running with CORS, fuzzy match, and Wichita Falls check."
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
