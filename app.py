@@ -55,7 +55,7 @@ def check_address():
     match, score = process.extractOne(street_name, known_streets)
     print(f"🔁 Matched to '{match}' with score {score}")  # Debug logging
 
-    if score >= 85:  # Match threshold
+    if score >= 75:  # Match threshold
         club = street_to_club[match]
         return jsonify({
             "serviced": True,
