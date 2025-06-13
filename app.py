@@ -1,18 +1,26 @@
 from flask import Flask, request, jsonify
 import csv
 import requests
+import os
 
 app = Flask(__name__)
 
 # Load street-to-club mapping
 street_to_club = {}
 
-with open('rotary_streets.csv', newline='') as csvfile:
-    reader = csv.DictReader(csvfile)
-    for row in reader:
-        street = row['Street'].strip().lower()
-        club = row['RotaryClub'].strip()
-        street_to_club[street] = club
+# Load and normalize CSV data
+try:
+    with open('rotary_streets.csv', newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            # Normalize headers and content
+            cleaned_row = {k.strip().lower(): v for k, v in row.items()}
+            street = cleaned_row.get('street', '').strip().lower()
+            club = cleaned_row.get('rotaryclub', '').strip()
+            if street and club:
+                street_to_club[street] = club
+except Exception as e:
+    print("Failed to load CSV:", e)
 
 @app.route('/check', methods=['GET'])
 def check_address():
@@ -20,6 +28,7 @@ def check_address():
     if not user_address:
         return jsonify({"error": "No address provided"}), 400
 
+    # Geocode with OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -52,4 +61,9 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "Rotary Club Lookup API is running."
+    return "✅ Rotary Club Lookup API is running."
+
+# Required for Render deployment
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
