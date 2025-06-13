@@ -3,8 +3,10 @@ import csv
 import requests
 import os
 from fuzzywuzzy import process
+from flask_cors import CORS  # ✅ CORS import
 
 app = Flask(__name__)
+CORS(app)  # ✅ Enable CORS for all routes
 
 # Load street-to-club mapping
 street_to_club = {}
@@ -14,10 +16,9 @@ try:
     with open('rotary_streets.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            # Normalize headers and values
             cleaned_row = {k.strip().lower(): v for k, v in row.items()}
             street = cleaned_row.get('street', '').strip().lower()
-            club = cleaned_row.get('rotaryclub', '').strip().upper()  # Normalize to uppercase
+            club = cleaned_row.get('rotaryclub', '').strip().upper()
             if street and club:
                 street_to_club[street] = club
                 known_streets.append(street)
@@ -27,10 +28,8 @@ except Exception as e:
 @app.route('/check', methods=['GET'])
 def check_address():
     user_address = request.args.get('address')
-    if not user_address:
-        return jsonify({"error": "No address provided"}), 400
+    print(f"🔍 User address input: {user_address}")
 
-    # Geocode with OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -39,23 +38,24 @@ def check_address():
     }, headers={"User-Agent": "RotaryClubLookup"})
 
     data = response.json()
+    print("📍 Raw geocode data:", data)
+
     if not data or "address" not in data[0]:
         return jsonify({"serviced": False, "reason": "Address not found"})
 
     address_info = data[0]["address"]
-    print("📍 Parsed address info:", address_info)  # Debug logging
+    print("📍 Parsed address info:", address_info)
 
     street_name = address_info.get("road", "").lower().strip()
-    print(f"🔍 Extracted street name: '{street_name}'")  # Debug logging
+    print(f"🔍 Extracted street name: '{street_name}'")
 
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
-    # Fuzzy match the street name
     match, score = process.extractOne(street_name, known_streets)
-    print(f"🔁 Matched to '{match}' with score {score}")  # Debug logging
+    print(f"🔁 Fuzzy matched to '{match}' with score {score}")
 
-    if score >= 75:  # Match threshold
+    if score >= 80:  # Relaxed match threshold
         club = street_to_club[match]
         return jsonify({
             "serviced": True,
@@ -71,9 +71,8 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running with fuzzy match enabled."
+    return "✅ Rotary Club Lookup API is running with CORS and fuzzy matching."
 
-# Required for Render
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
