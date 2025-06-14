@@ -85,7 +85,7 @@ def check_address():
     print(f"🔍 Best fuzzy match: '{best_match}' ({best_score}) vs. input: '{input_norm}'")
 
     # If match is confident enough, return success
-    if best_score >= 90:
+    if best_score >= 80:
         rotary_club = street_to_club.get(best_match)
         if not rotary_club:
             rotary_club = street_to_club.get(best_match.replace(" ", ""), "UNKNOWN")
