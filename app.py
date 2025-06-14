@@ -27,9 +27,9 @@ SUFFIX_MAP = {
 def normalize(text):
     text = text.lower()
     for word, abbr in SUFFIX_MAP.items():
-        text = re.sub(rf"\b{word}\b", abbr, text)
+        text = re.sub(rf"\\b{word}\\b", abbr, text)
     text = re.sub(r"[^a-z0-9 ]", "", text)  # preserve spaces
-    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\\s+", " ", text).strip()
     return text
 
 # In-memory storage for street data
@@ -95,9 +95,20 @@ def check_address():
         return jsonify({"serviced": False, "reason": "Address not found."})
 
     address_data = data[0].get("address", {})
-    street_raw = address_data.get("road", "").strip()
+    print(f"📌 Parsed OSM address fields: {address_data}")
+
+    street_raw = (
+        address_data.get("road")
+        or address_data.get("residential")
+        or address_data.get("footway")
+        or address_data.get("pedestrian")
+        or ""
+    ).strip()
+
     city = address_data.get("city", "") or address_data.get("town", "")
     state = address_data.get("state", "")
+
+    print(f"📍 Street resolved as: '{street_raw}', City: '{city}', State: '{state}'")
 
     if city.lower() != "wichita falls" or state.lower() != "texas":
         return jsonify({"serviced": False, "reason": "We currently only support Wichita Falls, TX."})
@@ -119,7 +130,6 @@ def check_address():
     if best_score >= 80:
         rotary_club = street_to_club.get(best_match)
         if not rotary_club:
-            # Try fallback by checking similarity to other keys again
             for known_key in street_to_club:
                 if fuzz.ratio(best_match, known_key) >= best_score:
                     rotary_club = street_to_club[known_key]
@@ -134,7 +144,6 @@ def check_address():
             "confidence_score": best_score
         })
 
-    # Generate suggestions if no confident match
     print(f"🧐 No match found. Suggestions for '{street_raw}':")
     suggestion_candidates = []
     seen = set()
