@@ -18,7 +18,7 @@ display_name_map = {}
 known_streets = []
 
 # Load CSV data
-with open("streets.csv", newline="") as csvfile:
+with open("rotary_streets.csv", newline="") as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         raw_street = row["Street"].strip()
