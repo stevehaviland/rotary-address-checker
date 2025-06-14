@@ -76,7 +76,7 @@ def check_address():
     match, score = process.extractOne(street_normalized, known_streets)
     print(f"🔁 Matched '{street_normalized}' → '{match}' with score {score}")
 
-    if score >= 80:
+    if score >= 50:
         rotary_club = street_to_club[match]
         return jsonify({
             "serviced": True,
