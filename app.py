@@ -84,4 +84,4 @@ def check_address():
 
     return jsonify({
         "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%_
+        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%"
