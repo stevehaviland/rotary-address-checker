@@ -69,14 +69,27 @@ def check_address():
 
     # Use OpenStreetMap to resolve the address
     try:
+        print(f"📢 Geocoding address: '{address}'")
         response = requests.get(
             "https://nominatim.openstreetmap.org/search",
             params={"q": address, "format": "json", "addressdetails": 1, "limit": 1},
             headers={"User-Agent": "RotaryChecker/1.0"}
         )
-        data = response.json()
+
+        print(f"📥 OSM status code: {response.status_code}")
+
+        if response.status_code != 200:
+            return jsonify({"error": f"Geocoding failed with status code {response.status_code}"}), 500
+
+        try:
+            data = response.json()
+        except Exception as e:
+            print(f"❌ Failed to parse geocoding response: {e}")
+            return jsonify({"error": "Invalid geocoding response format"}), 500
+
     except Exception as e:
-        return jsonify({"error": f"Geocoding failed: {e}"}), 500
+        print(f"❌ Request to OpenStreetMap failed: {e}")
+        return jsonify({"error": f"Geocoding request failed: {e}"}), 500
 
     if not data:
         return jsonify({"serviced": False, "reason": "Address not found."})
