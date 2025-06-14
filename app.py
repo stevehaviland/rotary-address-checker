@@ -84,4 +84,13 @@ def check_address():
 
     return jsonify({
         "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%"
+        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)"
+    })
+
+@app.route('/')
+def home():
+    return "✅ Rotary Club Lookup API is running with authentication, fuzzy match, and Wichita Falls filter."
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
