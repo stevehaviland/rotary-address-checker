@@ -8,9 +8,10 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Load auth token from environment
+# Load auth token and Google API key from environment
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
-print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "your-google-api-key")
+print(f"\U0001F680 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
 # Load the service street CSV
 street_to_club = {}
@@ -31,7 +32,6 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
-    # ✅ Get and log the token
     token = request.args.get('token', '')
     print(f"🔐 Incoming token: {repr(token)}")
 
@@ -42,27 +42,39 @@ def check_address():
     user_address = request.args.get('address', '').strip()
     print(f"🔍 User address input: {user_address}")
 
-    response = requests.get("https://nominatim.openstreetmap.org/search", params={
-        "q": user_address,
-        "format": "json",
-        "addressdetails": 1,
-        "limit": 1
-    }, headers={"User-Agent": "RotaryClubLookup"})
+    # Use Google Geocoding API
+    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "address": user_address,
+        "key": GOOGLE_API_KEY
+    }
 
-    data = response.json()
-    print("📍 Raw geocode data:", data)
+    try:
+        response = requests.get(geocode_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        print("📍 Raw Google response:", data)
+    except Exception as e:
+        print("❌ Google API request failed:", e)
+        return jsonify({"serviced": False, "reason": "Google API error"})
 
-    if not data or "address" not in data[0]:
+    if not data.get("results"):
         return jsonify({"serviced": False, "reason": "Address not found"})
 
-    address_info = data[0]["address"]
-    print("📍 Parsed address info:", address_info)
+    address_components = data["results"][0].get("address_components", [])
+    street_name = ""
+    city = ""
+    state = ""
 
-    street_name = address_info.get("road", "").lower().strip()
-    city = address_info.get("city", "").lower().strip()
-    state = address_info.get("state", "").lower().strip()
+    for component in address_components:
+        if "route" in component["types"]:
+            street_name = component["long_name"].lower().strip()
+        elif "locality" in component["types"]:
+            city = component["long_name"].lower().strip()
+        elif "administrative_area_level_1" in component["types"]:
+            state = component["long_name"].lower().strip()
 
-    print(f"🏙️ City: '{city}', State: '{state}'")
+    print(f"🚏 Extracted: street='{street_name}', city='{city}', state='{state}'")
 
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
@@ -84,12 +96,13 @@ def check_address():
 
     return jsonify({
         "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)"
+        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)",
+        "suggestions": [{"street": match.title(), "score": score}]
     })
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running (token via query string)."
+    return "✅ Rotary Club Lookup API is running (Google Geocoding version)."
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
