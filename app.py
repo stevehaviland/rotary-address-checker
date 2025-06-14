@@ -8,9 +8,6 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Token for authentication
-AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")  # Set securely in Render
-
 # Load street-to-club mapping
 street_to_club = {}
 known_streets = []
@@ -30,16 +27,6 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
-    # 🔐 Bearer Token Authentication
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    token = auth_header.split(" ")[1]
-    if token != AUTH_TOKEN:
-        return jsonify({"error": "Forbidden"}), 403
-
-    # 🌐 Geocode and Match Address
     user_address = request.args.get('address')
     print(f"🔍 User address input: {user_address}")
 
@@ -54,6 +41,7 @@ def check_address():
     print("📍 Raw geocode data:", data)
 
     if not data or "address" not in data[0]:
+        print("❌ No address found.")
         return jsonify({"serviced": False, "reason": "Address not found"})
 
     address_info = data[0]["address"]
@@ -64,33 +52,4 @@ def check_address():
     state = address_info.get("state", "").lower().strip()
 
     print(f"🏙️ City: '{city}', State: '{state}'")
-    if not street_name:
-        return jsonify({"serviced": False, "reason": "Could not extract street name"})
-
-    if city != "wichita falls" or state != "texas":
-        return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX"})
-
-    match, score = process.extractOne(street_name, known_streets)
-    print(f"🔁 Fuzzy matched to '{match}' with score {score}")
-
-    if score >= 80:
-        club = street_to_club[match]
-        return jsonify({
-            "serviced": True,
-            "rotary_club": club,
-            "matched_street": match.title(),
-            "confidence_score": score
-        })
-
-    return jsonify({
-        "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)"
-    })
-
-@app.route('/')
-def home():
-    return "✅ Rotary Club Lookup API is running with authentication, fuzzy match, and Wichita Falls filter."
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    if not street_name_
