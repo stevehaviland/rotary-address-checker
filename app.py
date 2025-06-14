@@ -8,8 +8,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Token for authentication
-AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")  # Set securely in Render
+# Token stored in Render as an environment variable
+AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
 
 # Load street-to-club mapping
 street_to_club = {}
@@ -30,17 +30,12 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
-    # 🔐 Bearer Token Authentication
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    # 🔐 Query param token instead of Authorization header
+    token = request.args.get('token', '')
+    if token != AUTH_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
 
-    token = auth_header.split(" ")[1]
-    if token != AUTH_TOKEN:
-        return jsonify({"error": "Forbidden"}), 403
-
-    # 🌐 Geocode and Match Address
-    user_address = request.args.get('address')
+    user_address = request.args.get('address', '').strip()
     print(f"🔍 User address input: {user_address}")
 
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
@@ -89,7 +84,7 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running with authentication, fuzzy match, and Wichita Falls filter."
+    return "✅ Rotary Club Lookup API is running (token via query string)."
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
