@@ -148,45 +148,5 @@ def check_address():
         "suggestions": top_suggestions
     })
 
-@app.route("/suggest")
-def suggest_partial():
-    partial = request.args.get("partial", "").strip()
-    token = request.args.get("token", "")
-
-    if token != AUTH_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if not partial:
-        return jsonify({"suggestions": []})
-
-    try:
-        response = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": partial + ", Wichita Falls, TX", "format": "json", "addressdetails": 1, "limit": 5},
-            headers={"User-Agent": "RotaryChecker/1.0"}
-        )
-        results = response.json()
-    except Exception as e:
-        return jsonify({"error": f"Geocoding error: {e}"}), 500
-
-    matches = []
-    for item in results:
-        addr = item.get("address", {})
-        street = addr.get("road", "").strip()
-        if not street:
-            continue
-
-        norm_street = normalize(street)
-        for known in known_streets:
-            score = fuzz.ratio(norm_street, known)
-            if score >= 75:
-                matches.append({
-                    "suggested": display_name_map.get(known, known.title()),
-                    "match_score": score
-                })
-
-    matches = sorted(matches, key=lambda x: x["match_score"], reverse=True)
-    return jsonify({"suggestions": matches[:5]})
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
