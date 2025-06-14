@@ -62,6 +62,7 @@ def check_address():
         return jsonify({"serviced": False, "reason": "Address not found"})
 
     address_components = data["results"][0].get("address_components", [])
+    formatted_address = data["results"][0].get("formatted_address", "")
     street_name = ""
     city = ""
     state = ""
@@ -91,7 +92,8 @@ def check_address():
             "serviced": True,
             "rotary_club": club,
             "matched_street": match.title(),
-            "confidence_score": score
+            "confidence_score": score,
+            "confirmed_address": formatted_address
         })
 
     return jsonify({
