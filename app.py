@@ -3,21 +3,21 @@ import csv
 import requests
 import os
 import re
-from fuzzywuzzy import process
+from fuzzywuzzy import fuzz, process
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# Load token from environment
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
 print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
-# Normalization function to reduce errors due to formatting
 def normalize(text):
-    return re.sub(r'\W+', '', text.lower().strip())
+    """Lowercase, remove punctuation, and collapse whitespace."""
+    t = re.sub(r'[^\w\s]', ' ', text.lower())
+    return re.sub(r'\s+', ' ', t).strip()
 
-# Load streets and build reverse maps
+# Prepare street maps
 street_to_club = {}
 display_name_map = {}
 known_streets = []
@@ -37,7 +37,6 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
-    # Token auth via query param
     token = request.args.get('token', '')
     if token != AUTH_TOKEN:
         print("❌ Token mismatch!")
@@ -62,21 +61,27 @@ def check_address():
 
     address_info = data[0]["address"]
     street_raw = address_info.get("road", "").strip()
-    street_normalized = normalize(street_raw)
-
     city = address_info.get("city", "").lower().strip()
     state = address_info.get("state", "").lower().strip()
 
-    print(f"📍 Parsed OSM street: '{street_raw}', city: '{city}', state: '{state}'")
-
+    if not street_raw:
+        return jsonify({"serviced": False, "reason": "No street name found in address."})
+    
     if city != "wichita falls" or state != "texas":
         return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX."})
 
-    # Fuzzy match to normalized list
-    match, score = process.extractOne(street_normalized, known_streets)
-    print(f"🔁 Matched '{street_normalized}' → '{match}' with score {score}")
+    print(f"📍 Parsed street: {street_raw}, city: {city}, state: {state}")
 
-    if score >= 50:
+    street_norm = normalize(street_raw)
+
+    # Match using fuzz.token_set_ratio
+    scored_matches = [(s, fuzz.token_set_ratio(street_norm, s)) for s in known_streets]
+    scored_matches.sort(key=lambda x: x[1], reverse=True)
+    match, score = scored_matches[0]
+
+    print(f"🔁 Fuzzy matched '{street_raw}' → '{match}' with score {score}")
+
+    if score >= 80:
         rotary_club = street_to_club[match]
         return jsonify({
             "serviced": True,
@@ -85,15 +90,14 @@ def check_address():
             "confidence_score": score
         })
 
-    # Suggest up to 5 similar streets
-    match_list = process.extract(street_normalized, known_streets, limit=5)
-    suggestions = [
-        {
-            "street": display_name_map.get(norm, norm.title()),
-            "score": s
-        }
-        for norm, s in match_list if s >= 60
-    ]
+    # Provide fallback suggestions
+    suggestions = []
+    for s, s_score in scored_matches[:5]:
+        if s_score >= 60:
+            suggestions.append({
+                "street": display_name_map.get(s, s.title()),
+                "score": s_score
+            })
 
     return jsonify({
         "serviced": False,
