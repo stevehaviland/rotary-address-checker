@@ -12,27 +12,43 @@ CORS(app)
 # Load the auth token from environment variable
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "Gp#z86!FEVWlFU^nf0IT2@AW0@yWMrc^")
 
+# Standard suffix replacements
+SUFFIX_MAP = {
+    "street": "st", "st.": "st",
+    "avenue": "ave", "ave.": "ave",
+    "drive": "dr", "dr.": "dr",
+    "lane": "ln", "ln.": "ln",
+    "court": "ct", "ct.": "ct",
+    "road": "rd", "rd.": "rd",
+    "boulevard": "blvd", "blvd.": "blvd"
+}
+
+# Normalize function with suffix handling
+def normalize(text):
+    text = text.lower()
+    for word, abbr in SUFFIX_MAP.items():
+        text = re.sub(rf"\b{word}\b", abbr, text)
+    return re.sub(r"[^a-z0-9]", "", text)
+
 # In-memory storage for street data
 street_to_club = {}
 display_name_map = {}
 known_streets = []
 
 # Load CSV data
-with open("rotary_streets.csv", newline="") as csvfile:
+csv_file_path = "rotary_streets.csv"
+if not os.path.exists(csv_file_path):
+    raise FileNotFoundError(f"❌ CSV file not found: {csv_file_path}")
+
+with open(csv_file_path, newline="") as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         raw_street = row["Street"].strip()
         club = row["RotaryClub"].strip()
-        norm = re.sub(r"[^\w]", "", raw_street.lower())
+        norm = normalize(raw_street)
         street_to_club[norm] = club
         display_name_map[norm] = raw_street
         known_streets.append(norm)
-
-# Helper normalization
-def normalize(text):
-    text = text.lower()
-    text = re.sub(r"[^\w]", "", text)
-    return text.strip()
 
 @app.route("/")
 def home():
@@ -88,7 +104,13 @@ def check_address():
     if best_score >= 80:
         rotary_club = street_to_club.get(best_match)
         if not rotary_club:
-            rotary_club = street_to_club.get(best_match.replace(" ", ""), "UNKNOWN")
+            # Try fallback by checking similarity to other keys again
+            for known_key in street_to_club:
+                if fuzz.ratio(best_match, known_key) >= best_score:
+                    rotary_club = street_to_club[known_key]
+                    best_match = known_key
+                    break
+
         print(f"✅ Match found: '{best_match}' (score: {best_score}) → Rotary: {rotary_club}")
         return jsonify({
             "serviced": True,
