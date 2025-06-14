@@ -13,11 +13,11 @@ AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
 print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
 def normalize(text):
-    # Lowercase, remove punctuation, collapse spaces
+    """Lowercase, remove punctuation, and collapse whitespace."""
     t = re.sub(r'[^\w\s]', ' ', text.lower())
     return re.sub(r'\s+', ' ', t).strip()
 
-# Data structures
+# Dictionaries to hold street mappings
 street_to_club = {}
 display_name_map = {}
 known_streets = []
@@ -29,11 +29,11 @@ try:
             raw_street = row['Street'].strip()
             club = row['RotaryClub'].strip().upper()
 
-            # Normalize with and without space (for fuzzy match resilience)
-            normalized_with_space = normalize(raw_street)
-            normalized_no_space = normalized_with_space.replace(" ", "")
+            norm_space = normalize(raw_street)
+            norm_nospace = norm_space.replace(" ", "")
 
-            for key in {normalized_with_space, normalized_no_space}:
+            # Store both forms
+            for key in {norm_space, norm_nospace}:
                 street_to_club[key] = club
                 display_name_map[key] = raw_street
                 known_streets.append(key)
@@ -53,7 +53,7 @@ def check_address():
 
     print(f"🔍 Checking address: {user_address}")
 
-    # Query OpenStreetMap for parsing
+    # Query OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -76,45 +76,51 @@ def check_address():
     if city != "wichita falls" or state != "texas":
         return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX."})
 
-    print(f"📍 Parsed street: {street_raw}")
+    print(f"📍 Parsed street: {street_raw}, city: {city}, state: {state}")
 
-    # Normalize and match
-    input_normalized = normalize(street_raw)
-    input_nospace = input_normalized.replace(" ", "")
+    input_norm = normalize(street_raw)
+    input_nospace = input_norm.replace(" ", "")
 
-    # Build scoring set
-    scored_matches = []
-    for street_key in known_streets:
-        score = fuzz.token_set_ratio(input_nospace, street_key)
-        scored_matches.append((street_key, score))
+    # Prepare comparison list with both forms
+    all_variants = set(known_streets)
+    all_variants.update([k.replace(" ", "") for k in known_streets])
 
-    scored_matches.sort(key=lambda x: x[1], reverse=True)
-    match, score = scored_matches[0]
+    # Fuzzy match
+    best_match = None
+    best_score = 0
 
-    print(f"🔁 Best match: {match} ({score}%) for input '{street_raw}'")
+    for variant in all_variants:
+        score = fuzz.ratio(input_nospace, variant)
+        if score > best_score:
+            best_score = score
+            best_match = variant
 
-    if score >= 80:
-        rotary_club = street_to_club[match]
+    print(f"🔁 Fuzzy matched '{input_nospace}' to '{best_match}' with score {best_score}")
+
+    if best_score >= 80:
+        rotary_club = street_to_club.get(best_match, street_to_club.get(best_match.replace(" ", ""), "UNKNOWN"))
         return jsonify({
             "serviced": True,
             "rotary_club": rotary_club,
-            "matched_street": display_name_map.get(match, match.title()),
-            "confidence_score": score
+            "matched_street": display_name_map.get(best_match, best_match.title()),
+            "confidence_score": best_score
         })
 
-    # Suggestions
+    # Suggestions fallback
     suggestions = []
-    for s, s_score in scored_matches[:5]:
-        if s_score >= 60:
+    for variant in all_variants:
+        score = fuzz.ratio(input_nospace, variant)
+        if score >= 60:
             suggestions.append({
-                "street": display_name_map.get(s, s.title()),
-                "score": s_score
+                "street": display_name_map.get(variant, variant.title()),
+                "score": score
             })
 
+    suggestions.sort(key=lambda x: x["score"], reverse=True)
     return jsonify({
         "serviced": False,
         "reason": f"No close match for '{street_raw}'.",
-        "suggestions": suggestions
+        "suggestions": suggestions[:5]
     })
 
 @app.route('/')
