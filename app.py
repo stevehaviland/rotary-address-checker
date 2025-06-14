@@ -28,7 +28,9 @@ def normalize(text):
     text = text.lower()
     for word, abbr in SUFFIX_MAP.items():
         text = re.sub(rf"\b{word}\b", abbr, text)
-    return re.sub(r"[^a-z0-9]", "", text)
+    text = re.sub(r"[^a-z0-9 ]", "", text)  # preserve spaces
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 # In-memory storage for street data
 street_to_club = {}
