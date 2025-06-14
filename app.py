@@ -17,11 +17,12 @@ def normalize(text):
     t = re.sub(r'[^\w\s]', ' ', text.lower())
     return re.sub(r'\s+', ' ', t).strip()
 
-# Dictionaries to hold street mappings
+# Data storage
 street_to_club = {}
 display_name_map = {}
 known_streets = []
 
+# Load and normalize CSV
 try:
     with open('rotary_streets.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
@@ -29,11 +30,10 @@ try:
             raw_street = row['Street'].strip()
             club = row['RotaryClub'].strip().upper()
 
-            norm_space = normalize(raw_street)
-            norm_nospace = norm_space.replace(" ", "")
+            norm_with_space = normalize(raw_street)
+            norm_no_space = norm_with_space.replace(" ", "")
 
-            # Store both forms
-            for key in {norm_space, norm_nospace}:
+            for key in {norm_with_space, norm_no_space}:
                 street_to_club[key] = club
                 display_name_map[key] = raw_street
                 known_streets.append(key)
@@ -53,7 +53,7 @@ def check_address():
 
     print(f"🔍 Checking address: {user_address}")
 
-    # Query OpenStreetMap
+    # Lookup via OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -78,14 +78,12 @@ def check_address():
 
     print(f"📍 Parsed street: {street_raw}, city: {city}, state: {state}")
 
+    # Normalize input
     input_norm = normalize(street_raw)
     input_nospace = input_norm.replace(" ", "")
 
-    # Prepare comparison list with both forms
-    all_variants = set(known_streets)
-    all_variants.update([k.replace(" ", "") for k in known_streets])
-
     # Fuzzy match
+    all_variants = set(known_streets + [s.replace(" ", "") for s in known_streets])
     best_match = None
     best_score = 0
 
@@ -106,21 +104,27 @@ def check_address():
             "confidence_score": best_score
         })
 
-    # Suggestions fallback
-    suggestions = []
-    for variant in all_variants:
-        score = fuzz.ratio(input_nospace, variant)
-        if score >= 60:
-            suggestions.append({
-                "street": display_name_map.get(variant, variant.title()),
+    # Suggestion fallback
+    suggestion_candidates = []
+    seen_display_names = set()
+
+    for variant in known_streets:
+        score = fuzz.ratio(input_nospace, variant.replace(" ", ""))
+        display_name = display_name_map.get(variant, variant.title())
+
+        if score >= 60 and display_name not in seen_display_names:
+            suggestion_candidates.append({
+                "street": display_name,
                 "score": score
             })
+            seen_display_names.add(display_name)
 
-    suggestions.sort(key=lambda x: x["score"], reverse=True)
+    suggestion_candidates.sort(key=lambda x: x["score"], reverse=True)
+
     return jsonify({
         "serviced": False,
         "reason": f"No close match for '{street_raw}'.",
-        "suggestions": suggestions[:5]
+        "suggestions": suggestion_candidates[:5]
     })
 
 @app.route('/')
