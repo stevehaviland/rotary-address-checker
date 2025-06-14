@@ -17,12 +17,22 @@ def normalize(text):
     t = re.sub(r'[^\w\s]', ' ', text.lower())
     return re.sub(r'\s+', ' ', t).strip()
 
-# Data storage
+# Store mappings
 street_to_club = {}
 display_name_map = {}
 known_streets = []
+base_name_map = {}  # base name (no suffix) -> full normalized key
 
-# Load and normalize CSV
+# Common suffixes for stripping
+common_suffixes = ['dr', 'rd', 'ln', 'st', 'ct', 'blvd', 'ave', 'trl', 'pl', 'way']
+
+def remove_suffix(name):
+    parts = name.strip().lower().split()
+    if parts and parts[-1] in common_suffixes:
+        return ' '.join(parts[:-1])
+    return name.lower()
+
+# Load CSV and prepare variants
 try:
     with open('rotary_streets.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
@@ -32,11 +42,16 @@ try:
 
             norm_with_space = normalize(raw_street)
             norm_no_space = norm_with_space.replace(" ", "")
+            base_form = remove_suffix(norm_with_space)
 
             for key in {norm_with_space, norm_no_space}:
                 street_to_club[key] = club
                 display_name_map[key] = raw_street
                 known_streets.append(key)
+
+            # Map base form to full form for suffix-insensitive matching
+            base_name_map[base_form.replace(" ", "")] = norm_with_space
+
 except Exception as e:
     print("❌ Failed to load CSV:", e)
 
@@ -53,7 +68,7 @@ def check_address():
 
     print(f"🔍 Checking address: {user_address}")
 
-    # Lookup via OpenStreetMap
+    # Query OpenStreetMap
     response = requests.get("https://nominatim.openstreetmap.org/search", params={
         "q": user_address,
         "format": "json",
@@ -81,11 +96,12 @@ def check_address():
     # Normalize input
     input_norm = normalize(street_raw)
     input_nospace = input_norm.replace(" ", "")
+    input_base = remove_suffix(input_norm).replace(" ", "")
 
-    # Fuzzy match
-    all_variants = set(known_streets + [s.replace(" ", "") for s in known_streets])
+    # Attempt fuzzy match on full and base forms
     best_match = None
     best_score = 0
+    all_variants = set(known_streets + [s.replace(" ", "") for s in known_streets])
 
     for variant in all_variants:
         score = fuzz.ratio(input_nospace, variant)
@@ -93,7 +109,12 @@ def check_address():
             best_score = score
             best_match = variant
 
-    print(f"🔁 Fuzzy matched '{input_nospace}' to '{best_match}' with score {best_score}")
+    # Check if base form gives a strong hit (suffix-insensitive)
+    if best_score < 80 and input_base in base_name_map:
+        base_candidate = base_name_map[input_base]
+        best_match = base_candidate
+        best_score = fuzz.ratio(input_nospace, base_candidate.replace(" ", ""))
+        print(f"📎 Base match used: {base_candidate} (score {best_score})")
 
     if best_score >= 80:
         rotary_club = street_to_club.get(best_match, street_to_club.get(best_match.replace(" ", ""), "UNKNOWN"))
@@ -104,7 +125,7 @@ def check_address():
             "confidence_score": best_score
         })
 
-    # Suggestion fallback
+    # Suggest top close matches
     suggestion_candidates = []
     seen_display_names = set()
 
@@ -120,11 +141,16 @@ def check_address():
             seen_display_names.add(display_name)
 
     suggestion_candidates.sort(key=lambda x: x["score"], reverse=True)
+    top_suggestions = suggestion_candidates[:5]
+
+    print(f"🧠 No match found. Suggestions for '{street_raw}':")
+    for s in top_suggestions:
+        print(f"   → {s['street']} (score: {s['score']})")
 
     return jsonify({
         "serviced": False,
         "reason": f"No close match for '{street_raw}'.",
-        "suggestions": suggestion_candidates[:5]
+        "suggestions": top_suggestions
     })
 
 @app.route('/')
