@@ -8,6 +8,9 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# Token for authentication
+AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")  # Set securely in Render
+
 # Load street-to-club mapping
 street_to_club = {}
 known_streets = []
@@ -27,6 +30,16 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
+    # 🔐 Bearer Token Authentication
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token != AUTH_TOKEN:
+        return jsonify({"error": "Forbidden"}), 403
+
+    # 🌐 Geocode and Match Address
     user_address = request.args.get('address')
     print(f"🔍 User address input: {user_address}")
 
@@ -51,7 +64,6 @@ def check_address():
     state = address_info.get("state", "").lower().strip()
 
     print(f"🏙️ City: '{city}', State: '{state}'")
-
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
@@ -72,13 +84,4 @@ def check_address():
 
     return jsonify({
         "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)"
-    })
-
-@app.route('/')
-def home():
-    return "✅ Rotary Club Lookup API is running with CORS, fuzzy match, and Wichita Falls check."
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%_
