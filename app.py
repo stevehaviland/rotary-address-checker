@@ -8,10 +8,11 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Token stored in Render as an environment variable
+# Load auth token from environment
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
+print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
-# Load street-to-club mapping
+# Load the service street CSV
 street_to_club = {}
 known_streets = []
 
@@ -30,9 +31,12 @@ except Exception as e:
 
 @app.route('/check', methods=['GET'])
 def check_address():
-    # 🔐 Query param token instead of Authorization header
+    # ✅ Get and log the token
     token = request.args.get('token', '')
+    print(f"🔐 Incoming token: {repr(token)}")
+
     if token != AUTH_TOKEN:
+        print("❌ Token mismatch!")
         return jsonify({"error": "Unauthorized"}), 401
 
     user_address = request.args.get('address', '').strip()
@@ -59,6 +63,7 @@ def check_address():
     state = address_info.get("state", "").lower().strip()
 
     print(f"🏙️ City: '{city}', State: '{state}'")
+
     if not street_name:
         return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
