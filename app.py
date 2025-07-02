@@ -9,12 +9,10 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Load auth token and Google API key from environment
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "changeme-123")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "your-google-api-key")
-print(f"\U0001F680 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
+print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
-# Load the service street CSV with optional address ranges
 street_data = []
 known_streets = []
 
@@ -50,7 +48,6 @@ def check_address():
     user_address = request.args.get('address', '').strip()
     print(f"🔍 User address input: {user_address}")
 
-    # Use Google Geocoding API
     geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
         "address": user_address,
@@ -100,7 +97,18 @@ def check_address():
     match, score = process.extractOne(street_name, known_streets)
     print(f"🔁 Fuzzy matched to '{match}' with score {score}")
 
-    if score >= 80:
+    # Stricter validation
+    accept_match = False
+    if score >= 90:
+        accept_match = True
+    else:
+        # Require shared token
+        input_tokens = set(street_name.split())
+        match_tokens = set(match.split())
+        if input_tokens & match_tokens:
+            accept_match = True
+
+    if accept_match:
         for entry in street_data:
             if entry["street"] == match:
                 start = entry["start"]
@@ -115,7 +123,6 @@ def check_address():
                             "confirmed_address": formatted_address
                         })
                 else:
-                    # No numeric range defined: assume entire street is covered
                     return jsonify({
                         "serviced": True,
                         "rotary_club": entry["club"],
@@ -124,6 +131,7 @@ def check_address():
                         "confirmed_address": formatted_address
                     })
 
+    # No acceptable match
     return jsonify({
         "serviced": False,
         "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)",
@@ -132,7 +140,7 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running (Google Geocoding version with ranges)."
+    return "✅ Rotary Club Lookup API is running (strict fuzzy matching)."
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
