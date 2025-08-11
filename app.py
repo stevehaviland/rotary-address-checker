@@ -16,6 +16,7 @@ print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 street_data = []
 known_streets = []
 
+# Load CSV
 try:
     with open('rotary_streets.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
@@ -36,6 +37,40 @@ try:
 except Exception as e:
     print("❌ Failed to load CSV:", e)
 
+
+# --- Helpers ---
+def normalize_street(s):
+    s = s.lower().strip()
+    s = re.sub(r'\b(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|court|ct)\b', '', s)
+    s = re.sub(r'\b(north|south|east|west|n|s|e|w)\b', '', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def find_entry(norm_street):
+    for entry in street_data:
+        if normalize_street(entry["street"]) == norm_street:
+            return entry
+    return None
+
+
+def success_payload(entry, matched_street, score, formatted_address):
+    return {
+        "serviced": True,
+        "rotary_club": entry["club"],
+        "matched_street": matched_street.title(),
+        "confidence_score": score,
+        "confirmed_address": formatted_address
+    }
+
+
+def no_match_payload(user_street, best_match, score):
+    return {
+        "serviced": False,
+        "reason": f"No matching service street found for '{user_street.title()}'. Closest match: '{best_match.title()}' ({score}%)",
+        "suggestions": [{"street": best_match.title(), "score": score}]
+    }
+
+
 @app.route('/check', methods=['GET'])
 def check_address():
     token = request.args.get('token', '')
@@ -49,10 +84,7 @@ def check_address():
     print(f"🔍 User address input: {user_address}")
 
     geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
-    params = {
-        "address": user_address,
-        "key": GOOGLE_API_KEY
-    }
+    params = {"address": user_address, "key": GOOGLE_API_KEY}
 
     try:
         response = requests.get(geocode_url, params=params)
@@ -94,53 +126,53 @@ def check_address():
     if city != "wichita falls" or state != "texas":
         return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX"})
 
-    match, score = process.extractOne(street_name, known_streets)
-    print(f"🔁 Fuzzy matched to '{match}' with score {score}")
+    norm_street = normalize_street(street_name)
 
-    # Stricter validation
-    accept_match = False
+    # --- Tier 1: Exact match + house range ---
+    for entry in street_data:
+        if normalize_street(entry["street"]) == norm_street:
+            if entry["start"] is not None and entry["end"] is not None and house_number is not None:
+                if entry["start"] <= house_number <= entry["end"]:
+                    return jsonify(success_payload(entry, street_name, 100, formatted_address))
+            else:
+                return jsonify(success_payload(entry, street_name, 100, formatted_address))
+
+    # --- Tier 2: Exact match ignoring house number ---
+    for entry in street_data:
+        if normalize_street(entry["street"]) == norm_street:
+            return jsonify(success_payload(entry, street_name, 100, formatted_address))
+
+    # --- Tier 3: Token overlap ---
+    tokens = set(norm_street.split())
+    for entry in street_data:
+        entry_tokens = set(normalize_street(entry["street"]).split())
+        if tokens & entry_tokens:
+            return jsonify(success_payload(entry, street_name, 95, formatted_address))
+
+    # --- Tier 4: Fuzzy match high confidence ---
+    normalized_known = [normalize_street(s) for s in known_streets]
+    match, score = process.extractOne(norm_street, normalized_known)
     if score >= 90:
-        accept_match = True
-    else:
-        # Require shared token
-        input_tokens = set(street_name.split())
+        entry = find_entry(match)
+        if entry:
+            return jsonify(success_payload(entry, match, score, formatted_address))
+
+    # --- Tier 5: Fuzzy match + token overlap ---
+    if score >= 80:
         match_tokens = set(match.split())
-        if input_tokens & match_tokens:
-            accept_match = True
+        if tokens & match_tokens:
+            entry = find_entry(match)
+            if entry:
+                return jsonify(success_payload(entry, match, score, formatted_address))
 
-    if accept_match:
-        for entry in street_data:
-            if entry["street"] == match:
-                start = entry["start"]
-                end = entry["end"]
-                if start is not None and end is not None and house_number is not None:
-                    if start <= house_number <= end:
-                        return jsonify({
-                            "serviced": True,
-                            "rotary_club": entry["club"],
-                            "matched_street": match.title(),
-                            "confidence_score": score,
-                            "confirmed_address": formatted_address
-                        })
-                else:
-                    return jsonify({
-                        "serviced": True,
-                        "rotary_club": entry["club"],
-                        "matched_street": match.title(),
-                        "confidence_score": score,
-                        "confirmed_address": formatted_address
-                    })
+    # --- Tier 6: No match ---
+    return jsonify(no_match_payload(norm_street, match, score))
 
-    # No acceptable match
-    return jsonify({
-        "serviced": False,
-        "reason": f"No matching service street found for '{street_name.title()}'. Closest match: '{match.title()}' ({score}%)",
-        "suggestions": [{"street": match.title(), "score": score}]
-    })
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running (strict fuzzy matching)."
+    return "✅ Rotary Club Lookup API is running with tiered matching."
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
