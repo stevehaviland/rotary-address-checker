@@ -90,7 +90,7 @@ def check_address():
         response = requests.get(geocode_url, params=params)
         response.raise_for_status()
         data = response.json()
-        print("📍 Raw Google response:", data)
+        print("📍 Raw Google response:", data, flush=True)
     except Exception as e:
         print("❌ Google API request failed:", e)
         return jsonify({"serviced": False, "reason": "Google API error"})
