@@ -96,7 +96,9 @@ def check_address():
         return jsonify({"serviced": False, "reason": "Google API error"})
 
     if not data.get("results"):
-        return jsonify({"serviced": False, "reason": "Address not found"})
+        result = {"serviced": False, "reason": "Address not found"}
+        print("❌ Returning JSON:", result)
+        return jsonify(result)
 
     address_components = data["results"][0].get("address_components", [])
     formatted_address = data["results"][0].get("formatted_address", "")
@@ -121,10 +123,14 @@ def check_address():
     print(f"🚏 Extracted: street='{street_name}', city='{city}', state='{state}', number='{house_number}'")
 
     if not street_name:
-        return jsonify({"serviced": False, "reason": "Could not extract street name"})
+        result = {"serviced": False, "reason": "Could not extract street name"}
+        print("❌ Returning JSON:", result)
+        return jsonify(result)
 
     if city != "wichita falls" or state != "texas":
-        return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX"})
+        result = {"serviced": False, "reason": "We only service Wichita Falls, TX"}
+        print("❌ Returning JSON:", result)
+        return jsonify(result)
 
     norm_street = normalize_street(street_name)
 
@@ -133,21 +139,33 @@ def check_address():
         if normalize_street(entry["street"]) == norm_street:
             if entry["start"] is not None and entry["end"] is not None and house_number is not None:
                 if entry["start"] <= house_number <= entry["end"]:
-                    return jsonify(success_payload(entry, street_name, 100, formatted_address))
+                    print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
+                    result = success_payload(entry, street_name, 100, formatted_address)
+                    print("📤 Returning JSON:", result)
+                    return jsonify(result)
             else:
-                return jsonify(success_payload(entry, street_name, 100, formatted_address))
+                print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
+                result = success_payload(entry, street_name, 100, formatted_address)
+                print("📤 Returning JSON:", result)
+                return jsonify(result)
 
     # --- Tier 2: Exact match ignoring house number ---
     for entry in street_data:
         if normalize_street(entry["street"]) == norm_street:
-            return jsonify(success_payload(entry, street_name, 100, formatted_address))
+            print(f"✅ Matched Tier 2: Exact street ignoring house number → {entry['street']}")
+            result = success_payload(entry, street_name, 100, formatted_address)
+            print("📤 Returning JSON:", result)
+            return jsonify(result)
 
     # --- Tier 3: Token overlap ---
     tokens = set(norm_street.split())
     for entry in street_data:
         entry_tokens = set(normalize_street(entry["street"]).split())
         if tokens & entry_tokens:
-            return jsonify(success_payload(entry, street_name, 95, formatted_address))
+            print(f"✅ Matched Tier 3: Token overlap → {entry['street']}")
+            result = success_payload(entry, street_name, 95, formatted_address)
+            print("📤 Returning JSON:", result)
+            return jsonify(result)
 
     # --- Tier 4: Fuzzy match high confidence ---
     normalized_known = [normalize_street(s) for s in known_streets]
@@ -155,7 +173,10 @@ def check_address():
     if score >= 90:
         entry = find_entry(match)
         if entry:
-            return jsonify(success_payload(entry, match, score, formatted_address))
+            print(f"✅ Matched Tier 4: Fuzzy (≥90) → {entry['street']} ({score}%)")
+            result = success_payload(entry, match, score, formatted_address)
+            print("📤 Returning JSON:", result)
+            return jsonify(result)
 
     # --- Tier 5: Fuzzy match + token overlap ---
     if score >= 80:
@@ -163,10 +184,17 @@ def check_address():
         if tokens & match_tokens:
             entry = find_entry(match)
             if entry:
-                return jsonify(success_payload(entry, match, score, formatted_address))
+                print(f"✅ Matched Tier 5: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
+                result = success_payload(entry, match, score, formatted_address)
+                print("📤 Returning JSON:", result)
+                return jsonify(result)
 
     # --- Tier 6: No match ---
-    return jsonify(no_match_payload(norm_street, match, score))
+    print("❌ No match found in any tier")
+    result = no_match_payload(norm_street, match, score)
+    print("📤 Returning JSON:", result)
+    return jsonify(result)
+
 
 
 @app.route('/')
