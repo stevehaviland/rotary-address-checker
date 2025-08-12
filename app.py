@@ -14,7 +14,7 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "your-google-api-key")
 print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
 street_data = []
-known_streets = []
+known_streets = {}
 
 # --- Helpers ---
 def normalize_street(s):
@@ -23,47 +23,31 @@ def normalize_street(s):
     s = re.sub(r'\b(north|south|east|west|n|s|e|w)\b', '', s)
     return re.sub(r'\s+', ' ', s).strip()
 
-def load_csv_file(filename):
-    temp_dict = {}
-    try:
-        with open(filename, newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                cleaned_row = {k.strip().lower(): v.strip() for k, v in row.items()}
-                street = cleaned_row.get('street', '').lower()
-                club = cleaned_row.get('rotaryclub', '').upper()
-                start_address = cleaned_row.get('start_address', '')
-                end_address = cleaned_row.get('end_address', '')
-
-                if street and club:
-                    norm = normalize_street(street)
-                    temp_dict[norm] = {
-                        "street": street,
-                        "club": club,
-                        "start": int(start_address) if start_address.isdigit() else None,
-                        "end": int(end_address) if end_address.isdigit() else None
-                    }
-        print(f"✅ Loaded {len(temp_dict)} streets from {filename}", flush=True)
-    except FileNotFoundError:
-        print(f"⚠️ File not found: {filename}", flush=True)
-    except Exception as e:
-        print(f"❌ Failed to load {filename}:", e, flush=True)
-    return temp_dict
-
-# Load primary then backup, overwriting earlier entries
-all_data = {}
-all_data.update(load_csv_file('rotary_streets.csv'))
-all_data.update(load_csv_file('rotary_streets_backup.csv'))
-
-# Convert dict to lists
-street_data = list(all_data.values())
-known_streets = [entry['street'] for entry in street_data]
+# Load CSV (later rows overwrite earlier ones)
+try:
+    with open('rotary_streets.csv', newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            cleaned_row = {k.strip().lower(): v.strip() for k, v in row.items()}
+            street = cleaned_row.get('street', '').lower()
+            if not street:
+                continue
+            club = cleaned_row.get('rotaryclub', '').upper()
+            start_address = cleaned_row.get('start_address', '')
+            end_address = cleaned_row.get('end_address', '')
+            norm = normalize_street(street)
+            known_streets[norm] = {
+                "street": street,
+                "club": club,
+                "start": int(start_address) if start_address.isdigit() else None,
+                "end": int(end_address) if end_address.isdigit() else None
+            }
+    street_data = list(known_streets.values())
+except Exception as e:
+    print("❌ Failed to load CSV:", e)
 
 def find_entry(norm_street):
-    for entry in street_data:
-        if normalize_street(entry["street"]) == norm_street:
-            return entry
-    return None
+    return known_streets.get(norm_street)
 
 def success_payload(entry, matched_street, score, formatted_address):
     return {
@@ -144,38 +128,52 @@ def check_address():
 
     norm_street = normalize_street(street_name)
 
-    # Tier 1: Exact match + house range
-    for entry in street_data:
-        if normalize_street(entry["street"]) == norm_street:
-            if entry["start"] is not None and entry["end"] is not None and house_number is not None:
-                if entry["start"] <= house_number <= entry["end"]:
-                    print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
-                    result = success_payload(entry, street_name, 100, formatted_address)
-                    print("📤 Returning JSON:", result)
-                    return jsonify(result)
-            else:
-                print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
+    # --- Tier 1: Exact match + house range ---
+    entry = find_entry(norm_street)
+    if entry:
+        if entry["start"] is not None and entry["end"] is not None and house_number is not None:
+            if entry["start"] <= house_number <= entry["end"]:
+                print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
                 result = success_payload(entry, street_name, 100, formatted_address)
                 print("📤 Returning JSON:", result)
                 return jsonify(result)
-
-    # Tier 2: Exact match ignoring house number
-    for entry in street_data:
-        if normalize_street(entry["street"]) == norm_street:
-            print(f"✅ Matched Tier 2: Exact street ignoring house number → {entry['street']}")
+        else:
+            print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
             result = success_payload(entry, street_name, 100, formatted_address)
             print("📤 Returning JSON:", result)
             return jsonify(result)
 
-    # Tier 3: Token overlap
-    tokens = set(norm_street.split())
-    for entry in street_data:
-        entry_tokens = set(normalize_street(entry["street"]).split())
-        if tokens & entry_tokens:
-            print(f"✅ Matched Tier 3: Token overlap → {entry['street']}")
-            result = success_payload(entry, street_name, 95, formatted_address)
+    # --- Fuzzy match tiers ---
+    normalized_known = list(known_streets.keys())
+    match, score = process.extractOne(norm_street, normalized_known)
+    if score >= 90:
+        entry = find_entry(match)
+        if entry:
+            print(f"✅ Matched Tier 4: Fuzzy (≥90) → {entry['street']} ({score}%)")
+            result = success_payload(entry, match, score, formatted_address)
             print("📤 Returning JSON:", result)
             return jsonify(result)
 
-    # Tier 4: Fuzzy match high confidence
-    normalized_known = [normalize_street(s) for s in known_st]()_
+    if score >= 80:
+        tokens = set(norm_street.split())
+        match_tokens = set(match.split())
+        if tokens & match_tokens:
+            entry = find_entry(match)
+            if entry:
+                print(f"✅ Matched Tier 5: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
+                result = success_payload(entry, match, score, formatted_address)
+                print("📤 Returning JSON:", result)
+                return jsonify(result)
+
+    print("❌ No match found in any tier")
+    result = no_match_payload(norm_street, match, score)
+    print("📤 Returning JSON:", result)
+    return jsonify(result)
+
+@app.route('/')
+def home():
+    return "✅ Rotary Club Lookup API is running with tiered matching."
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
