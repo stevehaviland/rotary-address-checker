@@ -16,28 +16,6 @@ print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 street_data = []
 known_streets = []
 
-# Load CSV
-try:
-    with open('rotary_streets.csv', newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            cleaned_row = {k.strip().lower(): v.strip() for k, v in row.items()}
-            street = cleaned_row.get('street', '').lower()
-            club = cleaned_row.get('rotaryclub', '').upper()
-            start_address = cleaned_row.get('start_address', '')
-            end_address = cleaned_row.get('end_address', '')
-            if street and club:
-                known_streets.append(street)
-                street_data.append({
-                    "street": street,
-                    "club": club,
-                    "start": int(start_address) if start_address.isdigit() else None,
-                    "end": int(end_address) if end_address.isdigit() else None
-                })
-except Exception as e:
-    print("❌ Failed to load CSV:", e)
-
-
 # --- Helpers ---
 def normalize_street(s):
     s = s.lower().strip()
@@ -45,13 +23,47 @@ def normalize_street(s):
     s = re.sub(r'\b(north|south|east|west|n|s|e|w)\b', '', s)
     return re.sub(r'\s+', ' ', s).strip()
 
+def load_csv_file(filename):
+    temp_dict = {}
+    try:
+        with open(filename, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                cleaned_row = {k.strip().lower(): v.strip() for k, v in row.items()}
+                street = cleaned_row.get('street', '').lower()
+                club = cleaned_row.get('rotaryclub', '').upper()
+                start_address = cleaned_row.get('start_address', '')
+                end_address = cleaned_row.get('end_address', '')
+
+                if street and club:
+                    norm = normalize_street(street)
+                    temp_dict[norm] = {
+                        "street": street,
+                        "club": club,
+                        "start": int(start_address) if start_address.isdigit() else None,
+                        "end": int(end_address) if end_address.isdigit() else None
+                    }
+        print(f"✅ Loaded {len(temp_dict)} streets from {filename}", flush=True)
+    except FileNotFoundError:
+        print(f"⚠️ File not found: {filename}", flush=True)
+    except Exception as e:
+        print(f"❌ Failed to load {filename}:", e, flush=True)
+    return temp_dict
+
+# Load primary then backup, overwriting earlier entries
+all_data = {}
+all_data.update(load_csv_file('rotary_streets.csv'))
+all_data.update(load_csv_file('rotary_streets_backup.csv'))
+
+# Convert dict to lists
+street_data = list(all_data.values())
+known_streets = [entry['street'] for entry in street_data]
 
 def find_entry(norm_street):
     for entry in street_data:
         if normalize_street(entry["street"]) == norm_street:
             return entry
     return None
-
 
 def success_payload(entry, matched_street, score, formatted_address):
     return {
@@ -62,14 +74,12 @@ def success_payload(entry, matched_street, score, formatted_address):
         "confirmed_address": formatted_address
     }
 
-
 def no_match_payload(user_street, best_match, score):
     return {
         "serviced": False,
         "reason": f"No matching service street found for '{user_street.title()}'. Closest match: '{best_match.title()}' ({score}%)",
         "suggestions": [{"street": best_match.title(), "score": score}]
     }
-
 
 @app.route('/check', methods=['GET'])
 def check_address():
@@ -134,7 +144,7 @@ def check_address():
 
     norm_street = normalize_street(street_name)
 
-    # --- Tier 1: Exact match + house range ---
+    # Tier 1: Exact match + house range
     for entry in street_data:
         if normalize_street(entry["street"]) == norm_street:
             if entry["start"] is not None and entry["end"] is not None and house_number is not None:
@@ -149,7 +159,7 @@ def check_address():
                 print("📤 Returning JSON:", result)
                 return jsonify(result)
 
-    # --- Tier 2: Exact match ignoring house number ---
+    # Tier 2: Exact match ignoring house number
     for entry in street_data:
         if normalize_street(entry["street"]) == norm_street:
             print(f"✅ Matched Tier 2: Exact street ignoring house number → {entry['street']}")
@@ -157,7 +167,7 @@ def check_address():
             print("📤 Returning JSON:", result)
             return jsonify(result)
 
-    # --- Tier 3: Token overlap ---
+    # Tier 3: Token overlap
     tokens = set(norm_street.split())
     for entry in street_data:
         entry_tokens = set(normalize_street(entry["street"]).split())
@@ -167,41 +177,5 @@ def check_address():
             print("📤 Returning JSON:", result)
             return jsonify(result)
 
-    # --- Tier 4: Fuzzy match high confidence ---
-    normalized_known = [normalize_street(s) for s in known_streets]
-    match, score = process.extractOne(norm_street, normalized_known)
-    if score >= 90:
-        entry = find_entry(match)
-        if entry:
-            print(f"✅ Matched Tier 4: Fuzzy (≥90) → {entry['street']} ({score}%)")
-            result = success_payload(entry, match, score, formatted_address)
-            print("📤 Returning JSON:", result)
-            return jsonify(result)
-
-    # --- Tier 5: Fuzzy match + token overlap ---
-    if score >= 80:
-        match_tokens = set(match.split())
-        if tokens & match_tokens:
-            entry = find_entry(match)
-            if entry:
-                print(f"✅ Matched Tier 5: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
-                result = success_payload(entry, match, score, formatted_address)
-                print("📤 Returning JSON:", result)
-                return jsonify(result)
-
-    # --- Tier 6: No match ---
-    print("❌ No match found in any tier")
-    result = no_match_payload(norm_street, match, score)
-    print("📤 Returning JSON:", result)
-    return jsonify(result)
-
-
-
-@app.route('/')
-def home():
-    return "✅ Rotary Club Lookup API is running with tiered matching."
-
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Tier 4: Fuzzy match high confidence
+    normalized_known = [normalize_street(s) for s in known_st]()_
