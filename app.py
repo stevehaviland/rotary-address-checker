@@ -70,22 +70,69 @@ def no_match_payload(user_street, best_match, score):
     }
 
 def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
-    # Strict rule: only return a match if house number is in range
+    # Tier 1: Exact match + house range
     entry = known_streets.get(norm_street)
     if entry:
         if entry["start"] is not None and entry["end"] is not None and house_number is not None:
             if entry["start"] <= house_number <= entry["end"]:
-                print(f"✅ Matched: Exact street + house range → {entry['street']}")
+                print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
                 return success_payload(entry, street_name, 100, formatted_address)
             else:
-                print(f"ℹ️ Street matched but number {house_number} not in range {entry['start']}-{entry['end']}")
+                print(f"⚠️ Street matched but house number {house_number} not in range {entry['start']}-{entry['end']}")
+                # Explicitly reject here so we can check secondary dataset later
                 return None
         else:
-            # If CSV doesn’t define a range, accept any house number
-            print(f"✅ Matched: Exact street (no range in CSV) → {entry['street']}")
+            print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
             return success_payload(entry, street_name, 100, formatted_address)
 
+
+    # Tier 2: Token overlap (only if no exact-range match)
+    if house_number is not None:
+        tokens = set(norm_street.split())
+        for entry in street_data:
+            entry_tokens = set(normalize_street(entry["street"]).split())
+            if tokens & entry_tokens:
+                if entry["start"] and entry["end"]:
+                    if entry["start"] <= house_number <= entry["end"]:
+                        print(f"✅ Matched Tier 2: Token overlap + in range → {entry['street']}")
+                        return success_payload(entry, street_name, 95, formatted_address)
+                else:
+                    print(f"✅ Matched Tier 2: Token overlap (no range check) → {entry['street']}")
+                    return success_payload(entry, street_name, 95, formatted_address)
+
+
+    # Tier 3: Fuzzy match high confidence (≥90) with range check
+    normalized_known = list(known_streets.keys())
+    match, score = process.extractOne(norm_street, normalized_known)
+    if score >= 90:
+        entry = known_streets.get(match)
+        if entry:
+            if entry["start"] and entry["end"] and house_number is not None:
+                if entry["start"] <= house_number <= entry["end"]:
+                    print(f"✅ Matched Tier 3: Fuzzy (≥90) + in range → {entry['street']} ({score}%)")
+                    return success_payload(entry, match, score, formatted_address)
+            else:
+                print(f"✅ Matched Tier 3: Fuzzy (≥90) → {entry['street']} ({score}%)")
+                return success_payload(entry, match, score, formatted_address)
+
+
+    # Tier 4: Fuzzy match + token overlap (≥80) with range check
+    if score >= 80:
+        match_tokens = set(match.split())
+        tokens = set(norm_street.split())
+        if tokens & match_tokens:
+            entry = known_streets.get(match)
+            if entry:
+                if entry["start"] and entry["end"] and house_number is not None:
+                    if entry["start"] <= house_number <= entry["end"]:
+                        print(f"✅ Matched Tier 4: Fuzzy (≥80) + token overlap + in range → {entry['street']} ({score}%)")
+                        return success_payload(entry, match, score, formatted_address)
+                else:
+                    print(f"✅ Matched Tier 4: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
+                    return success_payload(entry, match, score, formatted_address)
+
     return None
+
 
 # Load CSV data
 primary_street_data = load_csv('rotary_streets.csv')
@@ -163,14 +210,15 @@ def check_address():
         print("📤 Returning JSON from primary dataset:", result)
         return jsonify(result)
 
-    # Fallback to secondary dataset
+    # Fallback to secondary dataset if no primary match
     result = match_address(secondary_street_data, secondary_known_streets, norm_street, house_number, street_name, formatted_address)
     if result:
         print("📤 Returning JSON from secondary dataset:", result)
         return jsonify(result)
 
-    # No match anywhere
+    # No match
     print("❌ No match found in any dataset")
+    # For no-match payload, use fuzzy matching on primary + secondary combined keys for closest suggestion
     combined_keys = list(primary_known_streets.keys()) + list(secondary_known_streets.keys())
     combined_match, combined_score = process.extractOne(norm_street, combined_keys)
     result = no_match_payload(norm_street, combined_match, combined_score)
@@ -179,7 +227,7 @@ def check_address():
 
 @app.route('/')
 def home():
-    return "✅ Rotary Club Lookup API is running with strict range enforcement and dual CSV fallback."
+    return "✅ Rotary Club Lookup API is running with tiered matching and dual CSV fallback."
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
