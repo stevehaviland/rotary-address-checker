@@ -71,18 +71,22 @@ def no_match_payload(user_street, best_match, score):
 
 def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
     # Tier 1: Exact match + house range
-    entry = known_streets.get(norm_street)
-    if entry:
+    # Loop through all entries in street_data that match normalized street
+    matching_entries = [e for e in street_data if normalize_street(e["street"]) == norm_street]
+
+    # First, check if any have valid house number ranges that match
+    for entry in matching_entries:
         if entry["start"] is not None and entry["end"] is not None and house_number is not None:
             if entry["start"] <= house_number <= entry["end"]:
                 print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
                 return success_payload(entry, street_name, 100, formatted_address)
-            else:
-                print(f"❌ Skipped Tier 1: Exact match but house number not in range → {entry['street']}")
-                # Don't return here — continue checking other matches
-        else:
-            print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
-            return success_payload(entry, street_name, 100, formatted_address)
+
+    # If no range-based match found, fall back to a generic match (no range check)
+    for entry in matching_entries:
+        if entry["start"] is None and entry["end"] is None:
+            print(f"⚠️ Matched Tier 1 fallback: Exact street with no range → {entry['street']}")
+            return success_payload(entry, street_name, 90, formatted_address)
+
 
     # Tier 2: Token overlap
     tokens = set(norm_street.split())
