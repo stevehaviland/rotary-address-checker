@@ -69,52 +69,27 @@ def no_match_payload(user_street, best_match, score):
         "suggestions": [{"street": best_match.title(), "score": score}]
     }
 
-def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
-    # Tier 1: Exact match + house range
-    # Loop through all entries in street_data that match normalized street
-    matching_entries = [e for e in street_data if normalize_street(e["street"]) == norm_street]
+def match_address(street_data, norm_street, house_number, street_name, formatted_address):
+    if house_number is None:
+        print("❌ No house number found; skipping address range matching.")
+        return None
 
-    # First, check if any have valid house number ranges that match
-    for entry in matching_entries:
-        if entry["start"] is not None and entry["end"] is not None and house_number is not None:
-            if entry["start"] <= house_number <= entry["end"]:
-                print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
-                return success_payload(entry, street_name, 100, formatted_address)
-
-    # If no range-based match found, fall back to a generic match (no range check)
-    for entry in matching_entries:
-        if entry["start"] is None and entry["end"] is None:
-            print(f"⚠️ Matched Tier 1 fallback: Exact street with no range → {entry['street']}")
-            return success_payload(entry, street_name, 90, formatted_address)
-
-
-    # Tier 2: Token overlap
-    tokens = set(norm_street.split())
     for entry in street_data:
-        entry_tokens = set(normalize_street(entry["street"]).split())
-        if tokens & entry_tokens:
-            print(f"✅ Matched Tier 2: Token overlap → {entry['street']}")
-            return success_payload(entry, street_name, 95, formatted_address)
+        entry_street = normalize_street(entry["street"])
+        if entry_street == norm_street and entry["start"] is not None and entry["end"] is not None:
+            if entry["start"] <= house_number <= entry["end"]:
+                print(f"✅ Match found: {entry['street']} {entry['start']}-{entry['end']} → {entry['club']}")
+                return {
+                    "serviced": True,
+                    "rotary_club": entry["club"],
+                    "matched_street": entry["street"].title(),
+                    "confidence_score": 100,
+                    "confirmed_address": formatted_address
+                }
 
-    # Tier 3: Fuzzy match high confidence
-    normalized_known = list(known_streets.keys())
-    match, score = process.extractOne(norm_street, normalized_known)
-    if score >= 90:
-        entry = known_streets.get(match)
-        if entry:
-            print(f"✅ Matched Tier 3: Fuzzy (≥90) → {entry['street']} ({score}%)")
-            return success_payload(entry, match, score, formatted_address)
-
-    # Tier 4: Fuzzy match + token overlap
-    if score >= 80:
-        match_tokens = set(match.split())
-        if tokens & match_tokens:
-            entry = known_streets.get(match)
-            if entry:
-                print(f"✅ Matched Tier 4: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
-                return success_payload(entry, match, score, formatted_address)
-
+    print(f"❌ No range-based match found for {street_name} and house number {house_number}")
     return None
+
 
 # Load CSV data
 primary_street_data = load_csv('rotary_streets.csv')
@@ -186,17 +161,26 @@ def check_address():
 
     norm_street = normalize_street(street_name)
 
-    # Try primary dataset first
-    result = match_address(primary_street_data, primary_known_streets, norm_street, house_number, street_name, formatted_address)
+    # Try primary dataset
+    result = match_address(primary_street_data, norm_street, house_number, street_name, formatted_address)
     if result:
         print("📤 Returning JSON from primary dataset:", result)
         return jsonify(result)
 
-    # Fallback to secondary dataset if no primary match
-    result = match_address(secondary_street_data, secondary_known_streets, norm_street, house_number, street_name, formatted_address)
+    # Try secondary dataset
+    result = match_address(secondary_street_data, norm_street, house_number, street_name, formatted_address)
     if result:
         print("📤 Returning JSON from secondary dataset:", result)
         return jsonify(result)
+
+    # No match found in either dataset
+    result = {
+        "serviced": False,
+        "reason": "We do not currently service your address based on known street address ranges."
+    }
+    print("📤 Returning JSON:", result)
+    return jsonify(result)
+
 
     # No match
     print("❌ No match found in any dataset")
