@@ -77,6 +77,9 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
             if entry["start"] <= house_number <= entry["end"]:
                 print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
                 return success_payload(entry, street_name, 100, formatted_address)
+            else:
+                print(f"❌ Skipped Tier 1: Exact match but house number not in range → {entry['street']}")
+                # Don't return here — continue checking other matches
         else:
             print(f"✅ Matched Tier 1: Exact street (no house range check) → {entry['street']}")
             return success_payload(entry, street_name, 100, formatted_address)
