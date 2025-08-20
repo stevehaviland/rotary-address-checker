@@ -69,25 +69,48 @@ def no_match_payload(user_street, best_match, score):
         "suggestions": [{"street": best_match.title(), "score": score}]
     }
 
-def match_address(street_data, norm_street, house_number, street_name, formatted_address):
-    if house_number is None:
-        print("❌ No house number found; skipping address range matching.")
-        return None
+def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
+    # Tier 1: Exact match + house range if available
+    entry = known_streets.get(norm_street)
+    if entry:
+        if entry["start"] is not None and entry["end"] is not None:
+            # CSV has a range → enforce it
+            if house_number is not None and entry["start"] <= house_number <= entry["end"]:
+                print(f"✅ Matched Tier 1: Exact street + house range → {entry['street']}")
+                return success_payload(entry, street_name, 100, formatted_address)
+            else:
+                print(f"❌ House number {house_number} not in range {entry['start']}-{entry['end']} for {entry['street']}")
+        else:
+            # No range in CSV → accept any house number
+            print(f"✅ Matched Tier 1: Exact street (no house range in CSV) → {entry['street']}")
+            return success_payload(entry, street_name, 100, formatted_address)
 
+    # Tier 2: Token overlap
+    tokens = set(norm_street.split())
     for entry in street_data:
-        entry_street = normalize_street(entry["street"])
-        if entry_street == norm_street and entry["start"] is not None and entry["end"] is not None:
-            if entry["start"] <= house_number <= entry["end"]:
-                print(f"✅ Match found: {entry['street']} {entry['start']}-{entry['end']} → {entry['club']}")
-                return {
-                    "serviced": True,
-                    "rotary_club": entry["club"],
-                    "matched_street": entry["street"].title(),
-                    "confidence_score": 100,
-                    "confirmed_address": formatted_address
-                }
+        entry_tokens = set(normalize_street(entry["street"]).split())
+        if tokens & entry_tokens:
+            print(f"✅ Matched Tier 2: Token overlap → {entry['street']}")
+            return success_payload(entry, street_name, 95, formatted_address)
 
-    print(f"❌ No range-based match found for {street_name} and house number {house_number}")
+    # Tier 3: Fuzzy match high confidence
+    normalized_known = list(known_streets.keys())
+    match, score = process.extractOne(norm_street, normalized_known)
+    if score >= 90:
+        entry = known_streets.get(match)
+        if entry:
+            print(f"✅ Matched Tier 3: Fuzzy (≥90) → {entry['street']} ({score}%)")
+            return success_payload(entry, match, score, formatted_address)
+
+    # Tier 4: Fuzzy match + token overlap
+    if score >= 80:
+        match_tokens = set(match.split())
+        if tokens & match_tokens:
+            entry = known_streets.get(match)
+            if entry:
+                print(f"✅ Matched Tier 4: Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
+                return success_payload(entry, match, score, formatted_address)
+
     return None
 
 
