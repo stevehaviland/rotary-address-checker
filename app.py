@@ -72,36 +72,33 @@ def no_match_payload(user_street, best_match, score):
         "suggestions": [{"street": best_match.title(), "score": score}]
     }
 
+
 def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
     entries = known_streets.get(norm_street, [])
 
     if entries:
-        found_range = False
+        # Step 1: Try to match against all ranged entries first
         for entry in entries:
             start, end = entry["start"], entry["end"]
-
-            # If this entry has a valid range, enforce it
-            if start is not None and end is not None:
-                found_range = True
-                if house_number is not None and start <= house_number <= end:
+            if start is not None and end is not None and house_number is not None:
+                if start <= house_number <= end:
                     print(f"Range match → {entry['street']} ({entry['club']})")
                     return success_payload(entry, street_name, 100, formatted_address)
 
-            # If no range is defined, treat as catch-all
-            else:
+        # Step 2: If no ranged match, check non-ranged (catch-all) entries
+        for entry in entries:
+            if entry["start"] is None or entry["end"] is None:
                 print(f"Street match (no range) → {entry['street']} ({entry['club']})")
                 return success_payload(entry, street_name, 100, formatted_address)
 
-        # If street exists but house number is outside all valid ranges → no service
-        if found_range:
-            print(f"Street '{street_name}' found but number '{house_number}' not in any serviced range.")
-            return {
-                "serviced": False,
-                "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."
-            }
+        # Step 3: If only ranged entries existed but none matched → not serviced
+        print(f"Street '{street_name}' found but number '{house_number}' not in any serviced range.")
+        return {
+            "serviced": False,
+            "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."
+        }
 
     # --- If no entries for this street, continue with fallback logic ---
-    # Tier 2: Token overlap
     tokens = set(norm_street.split())
     for entry in street_data:
         entry_tokens = set(normalize_street(entry["street"]).split())
@@ -109,7 +106,6 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
             print(f"Token overlap → {entry['street']}")
             return success_payload(entry, street_name, 95, formatted_address)
 
-    # Tier 3: Fuzzy match high confidence
     normalized_known = list(known_streets.keys())
     match, score = process.extractOne(norm_street, normalized_known)
     if score >= 90:
@@ -117,7 +113,6 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
             print(f"Fuzzy (≥90) → {entry['street']} ({score}%)")
             return success_payload(entry, match, score, formatted_address)
 
-    # Tier 4: Fuzzy match + token overlap
     if score >= 80:
         match_tokens = set(match.split())
         if tokens & match_tokens:
