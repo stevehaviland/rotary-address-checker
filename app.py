@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 import csv
 import requests
@@ -17,9 +16,9 @@ print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 # --- Helpers ---
 def normalize_street(s):
     s = s.lower().strip()
-    s = re.sub(r'\b(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|court|ct)\b', '', s)
-    s = re.sub(r'\b(north|south|east|west|n|s|e|w)\b', '', s)
+    s = re.sub(r'[^\w\s]', '', s)  # Remove punctuation but keep suffixes like Dr, St
     return re.sub(r'\s+', ' ', s).strip()
+
 
 def load_csv(filename):
     data = []
@@ -47,6 +46,7 @@ def load_csv(filename):
         print(f"Failed to load {filename}:", e, flush=True)
     return data
 
+
 def build_known_streets(data):
     known = {}
     for entry in data:
@@ -56,6 +56,7 @@ def build_known_streets(data):
         known[norm].append(entry)
     return known
 
+
 def success_payload(entry, matched_street, score, formatted_address):
     return {
         "serviced": True,
@@ -64,6 +65,7 @@ def success_payload(entry, matched_street, score, formatted_address):
         "confidence_score": score,
         "confirmed_address": formatted_address
     }
+
 
 def no_match_payload(user_street, best_match, score):
     return {
@@ -75,9 +77,8 @@ def no_match_payload(user_street, best_match, score):
 
 def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
     entries = known_streets.get(norm_street, [])
-
     if entries:
-        # Step 1: Try to match against all ranged entries first
+        # Step 1: Check all ranged entries first
         for entry in entries:
             start, end = entry["start"], entry["end"]
             if start is not None and end is not None and house_number is not None:
@@ -85,18 +86,16 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
                     print(f"Range match → {entry['street']} ({entry['club']})")
                     return success_payload(entry, street_name, 100, formatted_address)
 
-        # Step 2: If no ranged match, check non-ranged (catch-all) entries
+        # Step 2: Then check any non-ranged (catch-all) entries
         for entry in entries:
             if entry["start"] is None or entry["end"] is None:
                 print(f"Street match (no range) → {entry['street']} ({entry['club']})")
                 return success_payload(entry, street_name, 100, formatted_address)
 
-        # Step 3: If only ranged entries existed but none matched → not serviced
+        # Step 3: If none of the entries matched, return not serviced
         print(f"Street '{street_name}' found but number '{house_number}' not in any serviced range.")
-        return {
-            "serviced": False,
-            "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."
-        }
+        return {"serviced": False,
+                "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."}
 
     # --- If no entries for this street, continue with fallback logic ---
     tokens = set(norm_street.split())
@@ -122,12 +121,14 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
 
     return None
 
+
 # Load CSV data
 primary_street_data = load_csv('rotary_streets.csv')
 primary_known_streets = build_known_streets(primary_street_data)
 
 secondary_street_data = load_csv('rotary_streets_extra.csv')
 secondary_known_streets = build_known_streets(secondary_street_data)
+
 
 @app.route('/check', methods=['GET'])
 def check_address():
@@ -212,9 +213,11 @@ def check_address():
     print("Returning JSON:", result)
     return jsonify(result)
 
+
 @app.route('/')
 def home():
     return "Rotary Club Lookup API is running with tiered matching and dual CSV fallback."
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
