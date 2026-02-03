@@ -14,10 +14,51 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "your-google-api-key")
 print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
 # --- Helpers ---
+ABBR_MAP = {
+    "st": "street",    "street": "street",
+    "rd": "road",
+    "road": "road",
+    "ave": "avenue",
+    "avenue": "avenue",
+    "blvd": "boulevard",
+    "boulevard": "boulevard",
+    "dr": "drive",
+    "drive": "drive",
+    "ln": "lane",
+    "lane": "lane",
+    "ct": "court",
+    "court": "court",
+    "pl": "place",
+    "place": "place",
+    "sq": "square",
+    "square": "square",
+    "trl": "trail",
+    "trail": "trail",
+    "pkwy": "parkway",
+    "parkway": "parkway",
+    "cir": "circle",
+    "circle": "circle",
+    "ter": "terrace",
+    "terrace": "terrace",
+    "hwy": "highway",
+    "highway": "highway",
+    "way": "way",
+    "loop": "loop",
+    "cv": "cove",
+    "cove": "cove",
+    "expy": "expressway",
+    "expressway": "expressway",
+    "aly": "alley",
+    "alley": "alley"
+}
+
+
 def normalize_street(s):
     s = s.lower().strip()
-    s = re.sub(r'[^\w\s]', '', s)  # Remove punctuation but keep suffixes like Dr, St
-    return re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'[^\w\s]', '', s)
+    tokens = s.split()
+    tokens = [ABBR_MAP.get(t, t) for t in tokens]
+    return ' '.join(tokens)
 
 
 def load_csv(filename):
@@ -221,4 +262,4 @@ def home():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # app.run(host='0.0.0.0', port=port)
