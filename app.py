@@ -120,8 +120,16 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
     if entries:
         has_ranges = any(e["start"] is not None and e["end"] is not None for e in entries)
 
-        # Step 1: Check ranged entries
-        if has_ranges and house_number is not None:
+        # If the street has ranged entries, house_number is required
+        if has_ranges:
+            if house_number is None:
+                print(f"Street '{street_name}' requires a valid house number")
+                return {
+                    "serviced": False,
+                    "reason": f"Street '{street_name.title()}' requires a valid house number."
+                }
+
+            # Step 1: Check ranged entries
             for entry in entries:
                 start, end = entry["start"], entry["end"]
                 if start is not None and end is not None:
@@ -138,11 +146,28 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
 
         # Step 2: Only allow catch-all if NO ranges exist
         if not has_ranges:
+            if house_number is None:
+                # House number missing → reject
+                print(f"Street '{street_name}' has no ranges but number is missing")
+                return {
+                    "serviced": False,
+                    "reason": f"Street '{street_name.title()}' requires a house number for verification."
+                }
+            # Accept any number for catch-all streets
             for entry in entries:
                 print(f"Street match (no range) → {entry['street']} ({entry['club']})")
                 return success_payload(entry, street_name, 100, formatted_address)
 
     # ---- fallback logic (street not found at all) ----
+    # Fuzzy or token matches should NOT override number validation if the number exists
+    if house_number is not None:
+        print(f"No exact street match for '{street_name}' with number {house_number}")
+        return {
+            "serviced": False,
+            "reason": f"No service information found for {house_number} {street_name.title()}"
+        }
+
+    # If no number provided, fuzzy street fallback is allowed
     tokens = set(norm_street.split())
     for entry in street_data:
         entry_tokens = set(normalize_street(entry["street"]).split())
@@ -156,15 +181,7 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
         return None
 
     match_key, score = match
-
-    if entries and has_ranges:
-        return None
-
-
     if score >= 90:
-        if entries and has_ranges:
-            return None
-
         for entry in known_streets.get(match_key, []):
             print(f"Fuzzy (≥90) → {entry['street']} ({score}%)")
             return success_payload(entry, match_key, score, formatted_address)
@@ -177,7 +194,6 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
                 return success_payload(entry, match_key, score, formatted_address)
 
     return None
-
 
 # Load CSV data
 primary_street_data = load_csv('rotary_streets.csv')
@@ -193,7 +209,6 @@ def check_address():
     print(f"Incoming token: {repr(token)}")
 
     if token != AUTH_TOKEN:
-        print("Token mismatch!")
         return jsonify({"error": "Unauthorized"}), 401
 
     user_address = request.args.get('address', '').strip()
@@ -208,13 +223,10 @@ def check_address():
         data = response.json()
         print("Raw Google response:", data, flush=True)
     except Exception as e:
-        print("Google API request failed:", e)
         return jsonify({"serviced": False, "reason": "Google API error"})
 
     if not data.get("results"):
-        result = {"serviced": False, "reason": "Address not found"}
-        print("Returning JSON:", result)
-        return jsonify(result)
+        return jsonify({"serviced": False, "reason": "Address not found"})
 
     address_components = data["results"][0].get("address_components", [])
     formatted_address = data["results"][0].get("formatted_address", "")
@@ -236,40 +248,44 @@ def check_address():
         elif "administrative_area_level_1" in component["types"]:
             state = component["long_name"].lower().strip()
 
-    print(f"Extracted: street='{street_name}', city='{city}', state='{state}', number='{house_number}'")
+    # Reject if user typed a number but Google couldn't parse it
+    if re.search(r'\d', user_address) and house_number is None:
+        return jsonify({
+            "serviced": False,
+            "reason": "Invalid or unrecognized street number"
+        })
 
     if not street_name:
-        result = {"serviced": False, "reason": "Could not extract street name"}
-        print("Returning JSON:", result)
-        return jsonify(result)
+        return jsonify({"serviced": False, "reason": "Could not extract street name"})
 
-    if city != "wichita falls" or state != "texas":
-        result = {"serviced": False, "reason": "We only service Wichita Falls, TX"}
-        print("Returning JSON:", result)
-        return jsonify(result)
+    if city != "wichita falls" or state not in ("texas", "tx"):
+        return jsonify({"serviced": False, "reason": "We only service Wichita Falls, TX"})
 
     norm_street = normalize_street(street_name)
 
-    # Try primary dataset first
+    # Primary dataset
     result = match_address(primary_street_data, primary_known_streets, norm_street, house_number, street_name, formatted_address)
-    if result:
-        print("Returning JSON from primary dataset:", result)
+    if result and result.get("serviced") is True:
+        return jsonify(result)
+    elif result and result.get("serviced") is False:
         return jsonify(result)
 
-    # Fallback to secondary dataset if no primary match
+    # Secondary dataset
     result = match_address(secondary_street_data, secondary_known_streets, norm_street, house_number, street_name, formatted_address)
-    if result:
-        print("Returning JSON from secondary dataset:", result)
+    if result and result.get("serviced") is True:
+        return jsonify(result)
+    elif result and result.get("serviced") is False:
         return jsonify(result)
 
     # No match
-    print("No match found in any dataset")
     combined_keys = list(primary_known_streets.keys()) + list(secondary_known_streets.keys())
-    combined_match, combined_score = process.extractOne(norm_street, combined_keys)
-    result = no_match_payload(norm_street, combined_match, combined_score)
-    print("Returning JSON:", result)
-    return jsonify(result)
+    match = process.extractOne(norm_street, combined_keys)
+    if not match:
+        return jsonify({"serviced": False, "reason": "No known streets loaded"})
 
+    combined_match, combined_score = match
+    result = no_match_payload(norm_street, combined_match, combined_score)
+    return jsonify(result)
 
 @app.route('/')
 def home():
