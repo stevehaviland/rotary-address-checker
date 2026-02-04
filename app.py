@@ -104,7 +104,8 @@ def success_payload(entry, matched_street, score, formatted_address):
         "rotary_club": entry["club"],
         "matched_street": matched_street.title(),
         "confidence_score": score,
-        "confirmed_address": formatted_address
+        "confirmed_address": formatted_address,
+        "fetch_address": True
     }
 
 
