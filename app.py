@@ -115,30 +115,34 @@ def no_match_payload(user_street, best_match, score):
         "suggestions": [{"street": best_match.title(), "score": score}]
     }
 
-
 def match_address(street_data, known_streets, norm_street, house_number, street_name, formatted_address):
     entries = known_streets.get(norm_street, [])
     if entries:
-        # Step 1: Check all ranged entries first
-        for entry in entries:
-            start, end = entry["start"], entry["end"]
-            if start is not None and end is not None and house_number is not None:
-                if start <= house_number <= end:
-                    print(f"Range match → {entry['street']} ({entry['club']})")
-                    return success_payload(entry, street_name, 100, formatted_address)
+        has_ranges = any(e["start"] is not None and e["end"] is not None for e in entries)
 
-        # Step 2: Then check any non-ranged (catch-all) entries
-        for entry in entries:
-            if entry["start"] is None or entry["end"] is None:
+        # Step 1: Check ranged entries
+        if has_ranges and house_number is not None:
+            for entry in entries:
+                start, end = entry["start"], entry["end"]
+                if start is not None and end is not None:
+                    if start <= house_number <= end:
+                        print(f"Range match → {entry['street']} ({entry['club']})")
+                        return success_payload(entry, street_name, 100, formatted_address)
+
+            # Street exists but number is invalid → HARD FAIL
+            print(f"Rejected {house_number} on {street_name}: outside all ranges")
+            return {
+                "serviced": False,
+                "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."
+            }
+
+        # Step 2: Only allow catch-all if NO ranges exist
+        if not has_ranges:
+            for entry in entries:
                 print(f"Street match (no range) → {entry['street']} ({entry['club']})")
                 return success_payload(entry, street_name, 100, formatted_address)
 
-        # Step 3: If none of the entries matched, return not serviced
-        print(f"Street '{street_name}' found but number '{house_number}' not in any serviced range.")
-        return {"serviced": False,
-                "reason": f"Street '{street_name.title()}' is recognized, but your address number is outside the serviced ranges."}
-
-    # --- If no entries for this street, continue with fallback logic ---
+    # ---- fallback logic (street not found at all) ----
     tokens = set(norm_street.split())
     for entry in street_data:
         entry_tokens = set(normalize_street(entry["street"]).split())
@@ -147,18 +151,30 @@ def match_address(street_data, known_streets, norm_street, house_number, street_
             return success_payload(entry, street_name, 95, formatted_address)
 
     normalized_known = list(known_streets.keys())
-    match, score = process.extractOne(norm_street, normalized_known)
+    match = process.extractOne(norm_street, normalized_known)
+    if not match:
+        return None
+
+    match_key, score = match
+
+    if entries and has_ranges:
+        return None
+
+
     if score >= 90:
-        for entry in known_streets.get(match, []):
+        if entries and has_ranges:
+            return None
+
+        for entry in known_streets.get(match_key, []):
             print(f"Fuzzy (≥90) → {entry['street']} ({score}%)")
-            return success_payload(entry, match, score, formatted_address)
+            return success_payload(entry, match_key, score, formatted_address)
 
     if score >= 80:
-        match_tokens = set(match.split())
+        match_tokens = set(match_key.split())
         if tokens & match_tokens:
-            for entry in known_streets.get(match, []):
+            for entry in known_streets.get(match_key, []):
                 print(f"Fuzzy (≥80) + token overlap → {entry['street']} ({score}%)")
-                return success_payload(entry, match, score, formatted_address)
+                return success_payload(entry, match_key, score, formatted_address)
 
     return None
 
@@ -262,4 +278,4 @@ def home():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    # app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port)
