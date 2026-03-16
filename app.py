@@ -43,7 +43,9 @@ ABBR_MAP = {
 }
 def normalize_street(s):
     s = s.lower().strip()
-    s = re.sub(r'[^\w\s]', '', s)
+    s = re.sub(r'[^\w\s]', '', s)  # remove punctuation
+    # remove suffixes like "apt XXX", "2 flags", "three flags"
+    s = re.sub(r'\b(apt|suite|unit|flags|personal flag)\b\s*\w*', '', s)
     tokens = s.split()
     tokens = [ABBR_MAP.get(t, t) for t in tokens]
     return ' '.join(tokens)
