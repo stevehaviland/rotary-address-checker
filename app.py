@@ -15,44 +15,32 @@ print(f"🚀 Loaded AUTH_TOKEN: {repr(AUTH_TOKEN)}")
 
 # --- Helpers ---
 ABBR_MAP = {
-    "st": "street",    "street": "street",
-    "rd": "road",
-    "road": "road",
-    "ave": "avenue",
-    "avenue": "avenue",
-    "blvd": "boulevard",
-    "boulevard": "boulevard",
-    "dr": "drive",
-    "drive": "drive",
-    "ln": "lane",
-    "lane": "lane",
-    "ct": "court",
-    "court": "court",
-    "pl": "place",
-    "place": "place",
-    "sq": "square",
-    "square": "square",
-    "trl": "trail",
-    "trail": "trail",
-    "pkwy": "parkway",
-    "parkway": "parkway",
-    "cir": "circle",
-    "circle": "circle",
-    "ter": "terrace",
-    "terrace": "terrace",
-    "hwy": "highway",
-    "highway": "highway",
-    "way": "way",
-    "loop": "loop",
-    "cv": "cove",
-    "cove": "cove",
-    "expy": "expressway",
-    "expressway": "expressway",
-    "aly": "alley",
-    "alley": "alley"
+    # Street types
+    "st": "street", "st.": "street", "street": "street",
+    "rd": "road", "rd.": "road", "road": "road",
+    "ave": "avenue", "ave.": "avenue", "avenue": "avenue",
+    "blvd": "boulevard", "blvd.": "boulevard", "boulevard": "boulevard",
+    "dr": "drive", "dr.": "drive", "drive": "drive",
+    "ln": "lane", "ln.": "lane", "lane": "lane",
+    "ct": "court", "ct.": "court", "court": "court",
+    "pl": "place", "pl.": "place", "place": "place",
+    "sq": "square", "sq.": "square", "square": "square",
+    "trl": "trail", "trl.": "trail", "tr": "trail", "tr.": "trail", "trail": "trail",
+    "pkwy": "parkway", "pkwy.": "parkway", "parkway": "parkway",
+    "cir": "circle", "cir.": "circle", "circle": "circle",
+    "ter": "terrace", "ter.": "terrace", "terrace": "terrace",
+    "hwy": "highway", "hwy.": "highway", "highway": "highway",
+    "way": "way", "loop": "loop",
+    "cv": "cove", "cv.": "cove", "cove": "cove",
+    "expy": "expressway", "expy.": "expressway", "expressway": "expressway",
+    "aly": "alley", "aly.": "alley", "alley": "alley",
+
+    # Directional prefixes
+    "n": "north", "s": "south", "e": "east", "w": "west",
+    "ne": "northeast", "nw": "northwest", "se": "southeast", "sw": "southwest",
+    "n.": "north", "s.": "south", "e.": "east", "w.": "west",
+    "ne.": "northeast", "nw.": "northwest", "se.": "southeast", "sw.": "southwest"
 }
-
-
 def normalize_street(s):
     s = s.lower().strip()
     s = re.sub(r'[^\w\s]', '', s)
